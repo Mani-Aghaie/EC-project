@@ -30,58 +30,71 @@ def is_D_in_denominator(expr):
     """
     # Get the denominator of the left-hand side and right-hand side of the equation
     _, denominator_lhs = sp.fraction(sp.simplify(sp.expand(expr.lhs)))
-    _, denominator_rhs = sp.fraction(sp.simplify(sp.expand(expr.rhs)))
+    #_, denominator_rhs = sp.fraction(sp.simplify(sp.expand(expr.rhs)))
 
     # Check if D-operator is in the denominator of either side
-    return denominator_lhs.has(D) or denominator_rhs.has(D)
+    return denominator_lhs.has(D) #or denominator_rhs.has(D)
 
-def D_form_to_differential_form(D_form_equation):
+def D_form_to_differential_form(D_form_equation, f_y_t, f_w_t):
     """
-    Applies the D operator and turns all Ds to derivative    
-     
-    prameteters:
-    D_form_equation (sympy Equation): An equation which includes powers of D
-
+    Converts an equation in terms of the D operator to its corresponding differential equation form.
+    
+    Parameters:
+    D_form_equation (sympy Equation): An equation which includes powers of D.
+    y_t (sympy Function): The desired output signal as a function of time.
+    w_t (sympy Function): The input waveform as a function of time.
+    
     Returns:
-    sympy Eq: Differential equation form of the same equation
+    sympy Eq: Differential equation form of the same equation.
     """
-    #splititng the function 
+    # Split the equation into left-hand side (lhs) and right-hand side (rhs)
     lhs = D_form_equation.lhs
     rhs = D_form_equation.rhs
+    
+    # Break the lhs and rhs into their additive components
     lhs_terms = lhs.as_ordered_terms()
     rhs_terms = rhs.as_ordered_terms()
     
-    # Replacing Ds with derivatives
-    #left hand side
-    i = 0
-    for term in lhs_terms:
+    # Replacing Ds with derivatives on the left-hand side
+    for i, term in enumerate(lhs_terms):
         D_counter = 0
-        while(term.has(D)):
+        # While term contains D, count the power of D and simplify the term
+        while term.has(D):
             term = term / D
             term = sp.expand(term)
             D_counter += 1
-        term = sp.expand((term / y_t) * sp.Derivative(y_t, (t, D_counter)))
+        # Replace D^n with nth derivative of y_t
+        term = sp.expand((term / f_y_t) * sp.Derivative(f_y_t, (t, D_counter)))
         lhs_terms[i] = term
-        i += 1
     
+    # Combine the modified terms back into a single expression
     lhs = sum(lhs_terms)
-
-    #right hand side
-    i = 0
-    for term in rhs_terms:
-        D_counter = 0
-        while(term.has(D)):
-            term = term / D
-            term = sp.expand(term)
-            D_counter += 1
-        term = sp.expand((term / w_t) * sp.Derivative(w_t, (t, D_counter)))
-        rhs_terms[i] = term
-        i += 1
     
+    # Replacing Ds with derivatives/integrals on the right-hand side
+    for i, term in enumerate(rhs_terms):
+        D_counter = 0
+        # While term contains D or D^-1, count the power of D and simplify the term
+        while term.has(D) or term.has(D**(-1)):
+            if term.has(D**(-1)):
+                term = term * D
+                term = sp.expand(term)
+                D_counter -= 1
+            else:
+                term = term / D
+                term = sp.expand(term)
+                D_counter += 1
+        # Replace D^n with nth derivative or integral based on D_counter
+        if D_counter > 0:
+            term = sp.expand((term / f_w_t) * sp.Derivative(f_w_t, (t, D_counter)))
+        elif D_counter < 0:
+            term = sp.expand(sp.integrate(term, (t, -D_counter)))
+        rhs_terms[i] = term
+    
+    # Combine the modified terms back into a single expression
     rhs = sum(rhs_terms)
-
-    #return the differential equation
-    return  sp.Eq(lhs, rhs)
+    
+    # Return the resulting differential equation
+    return sp.Eq(lhs, rhs)
 
 def analyzer(A, Y, W, N, M, w_t, y_t, return_D_form_equation = False):
     """
@@ -116,7 +129,7 @@ def analyzer(A, Y, W, N, M, w_t, y_t, return_D_form_equation = False):
     if return_D_form_equation :
         return D_form_equation
 
-    diff_equation = D_form_to_differential_form(D_form_equation)
+    diff_equation = D_form_to_differential_form(D_form_equation, Y[N], W[M])
 
     return diff_equation 
 
@@ -126,22 +139,26 @@ def analyzer(A, Y, W, N, M, w_t, y_t, return_D_form_equation = False):
 t = sp.symbols('t')
 D = sp.symbols('D')
 w_t = sp.Function('w')(t)
+x_t = sp.Function('x')(t)
 y_t = sp.Function('y')(t)
 z_t = sp.Function('z')(t)
 
 # Define the system matrices for the given problem
 A = [
-    [D + 2 , 1 - D],
-    [3 , D**(-1)]
+    [D , 1 - D**(-1), 1 + D],
+    [3 , 2 * D, 1],
+    [D, D**(-1) + 1, D**(-1)]
 ]
-Y = [y_t, z_t]
-W = [0, w_t]
+Y = [y_t, z_t, x_t]
+W = [0, w_t, 0]
 # W = [3 * w_t, D1(w_t, t)]
 M = 1
 N = 0
 
 
-diff_eq = analyzer(A, Y, W, N, M, w_t, y_t)
+diff_eq = analyzer(A, Y, W, N, M, W[M], Y[N])
+D_eq = analyzer(A, Y, W, N, M, W[M], Y[N], True)
+sp.pprint(D_eq)
 sp.pprint(diff_eq)
 
 # Calculate the minimal differential equation
