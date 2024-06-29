@@ -1,4 +1,7 @@
 import sympy as sp
+import signal
+
+#-----------------------------------------------FUNCTIONS------------------------------------------------------
 
 def simplify_D(expr):
     """
@@ -41,8 +44,8 @@ def D_form_to_differential_form(D_form_equation, f_y_t, f_w_t):
     
     Parameters:
     D_form_equation (sympy Equation): An equation which includes powers of D.
-    y_t (sympy Function): The desired output signal as a function of time.
-    w_t (sympy Function): The input waveform as a function of time.
+    f_y_t (sympy Function): The desired output signal as a function of time.
+    f_w_t (sympy Function): The input waveform as a function of time.
     
     Returns:
     sympy Eq: Differential equation form of the same equation.
@@ -133,11 +136,228 @@ def analyzer(A, Y, W, N, M, w_t, y_t, return_D_form_equation = False):
 
     return diff_equation 
 
+def D_form_to_H_s(D_form_equation, f_y_t, f_w_t):
+    """
+    Converts an equation in terms of the D operator to its corresponding transfer function H(s).
+
+    Parameters:
+    D_form_equation (sympy Equation): An equation which includes powers of D.
+    f_y_t (sympy Function): The desired output signal as a function of time.
+    f_w_t (sympy Function): The input waveform as a function of time.
+
+    Returns:
+    sympy Function: The transfer function H(s) in terms of s.
+    """
+    # Isolate y(t) and w(t) terms
+    y_terms = sp.collect(D_form_equation.lhs, f_y_t)
+    w_terms = sp.collect(D_form_equation.rhs, f_w_t)
+    
+    # Extract coefficients of y(t) and w(t)
+    coeff_y = y_terms.coeff(f_y_t)
+    coeff_w = w_terms.coeff(f_w_t)
+    
+    # Solve for w(t)/y(t) to find the transfer function H(D)
+    H_D = coeff_w / coeff_y
+
+    # Substitute s for D to convert H(D) to H(s)
+    s = sp.symbols('s')
+    H_s = sp.Function('H')(s)
+    H_s = H_D.replace(D, s)
+    
+    return H_s
+
+def find_H_s(A, Y, W, N, M, w_t, y_t):
+    """
+    Finds the transfer function H(s) of a given LTI system.
+
+    Parameters:
+    A (list of lists): n x n matrix whose elements are multiples of {D, D^-1, 1}.
+    Y (list): n x 1 vector of circuit variables.
+    W (list): n x 1 vector, where the Mth element is w(t) and others are 0.
+    N (int): Index of the desired signal y(t) in Y.
+    M (tuple): Indices of the input signal w(t) in W.
+    w_t (sympy Function): Input waveform w(t).
+    y_t (sympy Function): Output response y(t).
+
+    Returns:
+    sympy Function: The transfer function H(s) in terms of s.
+    """
+    # Get the D-form equation using the analyzer function
+    D_form = analyzer(A, Y, W, N, M, w_t, y_t, True)
+    
+    # Convert the D-form equation to H(s) using D_form_to_H_s
+    return D_form_to_H_s(D_form, y_t, w_t)
+
+def find_impulse_response_idea_2(A, Y, W, N, M, w_t, y_t):
+    """
+    Finds the impulse response h(t) of an LTI circuit given its transfer function.
+
+    Parameters:
+    A (list of lists): n x n matrix whose elements are multiples of {D, D^-1, 1}.
+    Y (list): n x 1 vector of circuit variables.
+    W (list): n x 1 vector, where the Mth element is w(t) and others are 0.
+    N (int): Index of the desired signal y(t) in Y.
+    M (tuple): Indices of the input signal w(t) in W.
+    w_t (sympy Function): Input waveform w(t).
+    y_t (sympy Function): Output response y(t).
+
+    Returns:
+    sympy Function: Impulse response h(t) as a function of time t.
+    """
+    # subsitute the delta function to w_t
+    w_t = sp.DiracDelta(t)
+    
+    # Find the coresponding differential equation
+    diff_eq = analyzer(A, Y, W, N, M, w_t, y_t)
+
+    # Generate initial conditions, assuming they are all zero
+    ics = {y_t.subs(t, 0): 0}
+    
+    # Determine the order of the differential equation by finding the highest derivative
+    # Iterate over terms and find the highest derivative
+    highest_order = 0
+    for term in sp.preorder_traversal(diff_eq.lhs):
+        if isinstance(term, sp.Derivative):
+            highest_order = max(highest_order, term.derivative_count)
+    
+    # Add initial conditions for each derivative up to the order of the equation
+    for i in range(1, highest_order + 1):
+        ics[sp.Derivative(y_t, t, i).subs(t, 0)] = 0
+
+
+    # solve 
+    try:
+        solution = sp.dsolve(diff_eq, y_t, inc = ics)
+    except ValueError():
+        print("Couldn't find the proper initial condition")
+        solution = sp.dsolve(diff_eq, y_t)
+
+    return sp.simplify(solution)
+
+def find_impulse_response(A, Y, W, N, M, w_t, y_t):
+    """
+    Finds the impulse response h(t) of an LTI circuit given its transfer function.
+
+    Parameters:
+    A (list of lists): n x n matrix whose elements are multiples of {D, D^-1, 1}.
+    Y (list): n x 1 vector of circuit variables.
+    W (list): n x 1 vector, where the Mth element is w(t) and others are 0.
+    N (int): Index of the desired signal y(t) in Y.
+    M (tuple): Indices of the input signal w(t) in W.
+    w_t (sympy Function): Input waveform w(t).
+    y_t (sympy Function): Output response y(t).
+
+    Returns:
+    sympy Function: Impulse response h(t) as a function of time t.
+    """
+    
+    # Find the coresponding differential equation
+    diff_eq_homogenous = analyzer(A, Y, W, N, M, 0, y_t)
+    diff_eq = analyzer(A, Y, W, N, M, w_t, y_t)
+
+    # # Generate initial conditions, assuming they are all zero
+    # ics = {y_t.subs(t, 0): 0}
+    
+    # Determine the order of the differential equation by finding the highest derivative
+    # Iterate over terms and find the highest derivative
+    n = 0
+    for term in sp.preorder_traversal(diff_eq.lhs):
+        if isinstance(term, sp.Derivative):
+            n = max(n, term.derivative_count)
+    
+    m = 0
+    for term in sp.preorder_traversal(diff_eq.rhs):
+        if isinstance(term, sp.Derivative):
+            m = max(m, term.derivative_count)
+
+    # # Add initial conditions for each derivative up to the order of the equation
+    # for i in range(1, n + 1):
+    #     ics[sp.Derivative(y_t, t, i).subs(t, 0)] = 0
+    
+    y_homogenous = sp.dsolve(diff_eq_homogenous, y_t)
+
+    # Create a list of symbolic constants C1, C2, ..., Cm+1 or C1, C2, ..., Cn
+    if m - n > -1:
+        h_t = y_homogenous.rhs * sp.Heaviside(t) 
+        constants , constants_values = [], []
+        for i in range(1, m + 2):
+            constants.append(sp.symbols(f'C{i}'))
+            constants_values.append(0)
+            if i > n:
+                h_t +=  h_t + constants[i-1] * sp.DiracDelta(t).diff((t, n-1))
+    else:
+        constants = [sp.symbols(f'C{i}') for i in range(1, n + 1)]
+        constants_values = [0 for i in range(n)]
+        h_t = y_homogenous.rhs * sp.Heaviside(t)
+
+    
+    # solve 
+    
+
+    lhs_terms = diff_eq.lhs.as_ordered_terms()
+    rhs_terms = diff_eq.rhs.as_ordered_terms()
+
+    eq_system = []
+    rhs_terms_counter = 0
+
+
+    for i in range(len(constants)):
+        #rhs of teh new equations
+        delta_coeff = 0
+        
+        # to be made in the loop
+        lhs_equation_expression = 0
+            
+        derivative_count = 0
+        # you can be sure they are ordered properly this is to check if one of them is zero
+        try:
+            if isinstance(rhs_terms[rhs_terms_counter].as_coeff_Mul()[1], sp.Derivative):
+                derivative_count = rhs_terms[rhs_terms_counter].as_coeff_Mul()[1].derivative_count
+        except IndexError:
+            print("index error happened line 314")
+            derivative_count = 0
+        if derivative_count == i:
+            delta_coeff = rhs_terms[rhs_terms_counter].as_coeff_Mul()[0]
+            rhs_terms_counter += 1
+            
+        for j in range(n + 1):
+            derivative_count = 0
+            # you can be sure they are ordered properly this is to check if one of them is zero
+            if isinstance(lhs_terms[j].as_coeff_Mul()[1], sp.Derivative):
+                derivative_count = lhs_terms[j].as_coeff_Mul()[1].derivative_count
+            
+            if derivative_count != j:
+                continue
+        
+            if m - n >= i - j and j - (i + 1)< 0:
+                lhs_equation_expression += lhs_terms[j].as_coeff_Mul()[0] * constants[n + i -j]
+            elif  j - (i + 1) >= 0:
+                lhs_equation_expression += lhs_terms[j].as_coeff_Mul()[0] * sp.expand(y_homogenous.rhs.diff((t, j - (i + 1))).replace(t, 0))
+        eq_system.append(sp.Eq(lhs_equation_expression, delta_coeff))
+    
+    constants_values = sp.solve(eq_system, constants)
+    print(constants_values)
+    print(sp.expand(sp.simplify(h_t)))
+    for i in range(len(constants)):
+        h_t = h_t.replace(constants[i], constants_values[constants[i]])
+
+
+    return sp.expand(sp.simplify(h_t))
+
+    
+    
+
+    
+
+
+#------------------------------------------------TEST THE APP HERE----------------------------------------------------------
 
 
 # Define the symbolic variables
 t = sp.symbols('t')
 D = sp.symbols('D')
+s = sp.symbols('s')
+h_t = sp.Function('h')(t)
 w_t = sp.Function('w')(t)
 x_t = sp.Function('x')(t)
 y_t = sp.Function('y')(t)
@@ -145,22 +365,23 @@ z_t = sp.Function('z')(t)
 
 # Define the system matrices for the given problem
 A = [
-    [D , 1 - D**(-1), 1 + D],
-    [3 , 2 * D, 1],
-    [D, D**(-1) + 1, D**(-1)]
+    [D**(-1) , D, 3],
+    [D , 2 *D, 3*D - 3],
+    [D**(-1) , D, 2*D - 3]
 ]
-Y = [y_t, z_t, x_t]
-W = [0, w_t, 0]
-# W = [3 * w_t, D1(w_t, t)]
+Y = [y_t, z_t]
+W = [0, w_t]
 M = 1
 N = 0
 
 
 diff_eq = analyzer(A, Y, W, N, M, W[M], Y[N])
-D_eq = analyzer(A, Y, W, N, M, W[M], Y[N], True)
-sp.pprint(D_eq)
-sp.pprint(diff_eq)
+H_s = find_H_s(A, Y, W, N, M, W[M], Y[N])
+h_t = find_impulse_response(A, Y, W, N, M, W[M], Y[N])
 
+sp.pprint(diff_eq)
+sp.pprint(H_s)
+sp.pprint(h_t)
 # Calculate the minimal differential equation
 # minimal_diff_eq = minimal_differential_equation(A, Y, W, N, M, w_t)
 # print("Minimal Differential Equation:")
