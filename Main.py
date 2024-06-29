@@ -1,5 +1,6 @@
 import sympy as sp
 import signal
+from sympy import I 
 
 #-----------------------------------------------FUNCTIONS------------------------------------------------------
 
@@ -188,6 +189,34 @@ def find_H_s(A, Y, W, N, M, w_t, y_t):
     # Convert the D-form equation to H(s) using D_form_to_H_s
     return D_form_to_H_s(D_form, y_t, w_t)
 
+def find_impulse_response_idea_1(A, Y, W, N, M, w_t, y_t):
+    """
+    Attempts to find the impulse response h(t) of an LTI circuit using the Laplace transform.
+
+    Parameters:
+    A (list of lists): n x n matrix whose elements are multiples of {D, D^-1, 1}.
+    Y (list): n x 1 vector of circuit variables.
+    W (list): n x 1 vector, where the Mth element is w(t) and others are 0.
+    N (int): Index of the desired signal y(t) in Y.
+    M (tuple): Indices of the input signal w(t) in W.
+    w_t (sympy Function): Input waveform w(t).
+    y_t (sympy Function): Output response y(t).
+
+    Returns:
+    sympy Function: Impulse response h(t) as a function of time t.
+
+    Note:
+    This attempt was abandoned due to the slow computation of the inverse Laplace transform.
+    """
+
+    # Find the transfer function H(s) of the system
+    H_s = find_H_s(A, Y, W, N, M, w_t, y_t)
+    
+    # Compute the inverse Laplace transform to find the impulse response h(t)
+    h_t = sp.inverse_laplace_transform(H_s, s, t)
+    
+    return h_t
+
 def find_impulse_response_idea_2(A, Y, W, N, M, w_t, y_t):
     """
     Finds the impulse response h(t) of an LTI circuit given its transfer function.
@@ -203,18 +232,21 @@ def find_impulse_response_idea_2(A, Y, W, N, M, w_t, y_t):
 
     Returns:
     sympy Function: Impulse response h(t) as a function of time t.
+
+    Note:
+    This attempt was abandoned because SymPy could not be forced to calculate the constants correctly.
     """
-    # subsitute the delta function to w_t
+
+    # Substitute the Dirac delta function for the input w(t)
     w_t = sp.DiracDelta(t)
     
-    # Find the coresponding differential equation
+    # Find the corresponding differential equation for the system
     diff_eq = analyzer(A, Y, W, N, M, w_t, y_t)
 
     # Generate initial conditions, assuming they are all zero
     ics = {y_t.subs(t, 0): 0}
     
     # Determine the order of the differential equation by finding the highest derivative
-    # Iterate over terms and find the highest derivative
     highest_order = 0
     for term in sp.preorder_traversal(diff_eq.lhs):
         if isinstance(term, sp.Derivative):
@@ -224,12 +256,11 @@ def find_impulse_response_idea_2(A, Y, W, N, M, w_t, y_t):
     for i in range(1, highest_order + 1):
         ics[sp.Derivative(y_t, t, i).subs(t, 0)] = 0
 
-
-    # solve 
+    # Solve the differential equation with initial conditions
     try:
-        solution = sp.dsolve(diff_eq, y_t, inc = ics)
-    except ValueError():
-        print("Couldn't find the proper initial condition")
+        solution = sp.dsolve(diff_eq, y_t, ics=ics)
+    except ValueError:
+        print("Couldn't find the proper initial conditions")
         solution = sp.dsolve(diff_eq, y_t)
 
     return sp.simplify(solution)
@@ -251,15 +282,11 @@ def find_impulse_response(A, Y, W, N, M, w_t, y_t):
     sympy Function: Impulse response h(t) as a function of time t.
     """
     
-    # Find the coresponding differential equation
-    diff_eq_homogenous = analyzer(A, Y, W, N, M, 0, y_t)
+    # Find the corresponding differential equations for the system
+    diff_eq_homogeneous = analyzer(A, Y, W, N, M, 0, y_t)
     diff_eq = analyzer(A, Y, W, N, M, w_t, y_t)
 
-    # # Generate initial conditions, assuming they are all zero
-    # ics = {y_t.subs(t, 0): 0}
-    
-    # Determine the order of the differential equation by finding the highest derivative
-    # Iterate over terms and find the highest derivative
+    # Determine the order of the differential equation by finding the highest derivative on both sides
     n = 0
     for term in sp.preorder_traversal(diff_eq.lhs):
         if isinstance(term, sp.Derivative):
@@ -270,82 +297,137 @@ def find_impulse_response(A, Y, W, N, M, w_t, y_t):
         if isinstance(term, sp.Derivative):
             m = max(m, term.derivative_count)
 
-    # # Add initial conditions for each derivative up to the order of the equation
-    # for i in range(1, n + 1):
-    #     ics[sp.Derivative(y_t, t, i).subs(t, 0)] = 0
-    
-    y_homogenous = sp.dsolve(diff_eq_homogenous, y_t)
+    # Solve the homogeneous differential equation
+    y_homogeneous = sp.dsolve(diff_eq_homogeneous, y_t)
 
     # Create a list of symbolic constants C1, C2, ..., Cm+1 or C1, C2, ..., Cn
     if m - n > -1:
-        h_t = y_homogenous.rhs * sp.Heaviside(t) 
-        constants , constants_values = [], []
+        h_t = y_homogeneous.rhs * sp.Heaviside(t)
+        constants, constants_values = [], []
         for i in range(1, m + 2):
             constants.append(sp.symbols(f'C{i}'))
             constants_values.append(0)
             if i > n:
-                h_t +=  h_t + constants[i-1] * sp.DiracDelta(t).diff((t, n-1))
+                h_t += constants[i-1] * sp.DiracDelta(t).diff((t, n-1))
     else:
         constants = [sp.symbols(f'C{i}') for i in range(1, n + 1)]
         constants_values = [0 for i in range(n)]
-        h_t = y_homogenous.rhs * sp.Heaviside(t)
-
+        h_t = y_homogeneous.rhs * sp.Heaviside(t)
     
-    # solve 
-    
-
+    # Extract the left-hand side and right-hand side terms of the differential equation
     lhs_terms = diff_eq.lhs.as_ordered_terms()
     rhs_terms = diff_eq.rhs.as_ordered_terms()
 
+    # Initialize an empty list to store the system of equations
     eq_system = []
     rhs_terms_counter = 0
 
-
+    # Construct the system of equations to solve for the constants
     for i in range(len(constants)):
-        #rhs of teh new equations
         delta_coeff = 0
-        
-        # to be made in the loop
         lhs_equation_expression = 0
-            
-        derivative_count = 0
-        # you can be sure they are ordered properly this is to check if one of them is zero
+        
+        # Determine the derivative count for the right-hand side terms
         try:
             if isinstance(rhs_terms[rhs_terms_counter].as_coeff_Mul()[1], sp.Derivative):
                 derivative_count = rhs_terms[rhs_terms_counter].as_coeff_Mul()[1].derivative_count
         except IndexError:
-            print("index error happened line 314")
+            print("Index error occurred")
             derivative_count = 0
         if derivative_count == i:
             delta_coeff = rhs_terms[rhs_terms_counter].as_coeff_Mul()[0]
             rhs_terms_counter += 1
             
+        # Construct the left-hand side expression for the current equation
         for j in range(n + 1):
             derivative_count = 0
-            # you can be sure they are ordered properly this is to check if one of them is zero
             if isinstance(lhs_terms[j].as_coeff_Mul()[1], sp.Derivative):
                 derivative_count = lhs_terms[j].as_coeff_Mul()[1].derivative_count
             
             if derivative_count != j:
                 continue
         
-            if m - n >= i - j and j - (i + 1)< 0:
-                lhs_equation_expression += lhs_terms[j].as_coeff_Mul()[0] * constants[n + i -j]
-            elif  j - (i + 1) >= 0:
-                lhs_equation_expression += lhs_terms[j].as_coeff_Mul()[0] * sp.expand(y_homogenous.rhs.diff((t, j - (i + 1))).replace(t, 0))
+            if m - n >= i - j and j - (i + 1) < 0:
+                lhs_equation_expression += lhs_terms[j].as_coeff_Mul()[0] * constants[n + i - j]
+            elif j - (i + 1) >= 0:
+                lhs_equation_expression += lhs_terms[j].as_coeff_Mul()[0] * sp.expand(y_homogeneous.rhs.diff((t, j - (i + 1))).replace(t, 0))
         eq_system.append(sp.Eq(lhs_equation_expression, delta_coeff))
     
+    # Solve the system of equations for the constants
     constants_values = sp.solve(eq_system, constants)
-    print(constants_values)
-    print(sp.expand(sp.simplify(h_t)))
+    
+    # Substitute the constants back into the homogeneous solution to find h(t)
     for i in range(len(constants)):
         h_t = h_t.replace(constants[i], constants_values[constants[i]])
 
-
     return sp.expand(sp.simplify(h_t))
 
+def find_frequency_response(A, Y, W, N, M, w_t, y_t):
+    """
+    Finds the frequency response H(jω) of an LTI system given its transfer function.
+
+    Parameters:
+    A (list of lists): n x n matrix whose elements are multiples of {D, D^-1, 1}.
+    Y (list): n x 1 vector of circuit variables.
+    W (list): n x 1 vector, where the Mth element is w(t) and others are 0.
+    N (int): Index of the desired signal y(t) in Y.
+    M (tuple): Indices of the input signal w(t) in W.
+    w_t (sympy Function): Input waveform w(t).
+    y_t (sympy Function): Output response y(t).
+
+    Returns:
+    tuple: (H_jomega, amplitude(H_jomega), phase(H_jomega))
+        - H_jomega: Frequency response H(jω).
+        - amplitude(H_jomega): Amplitude response of H(jω).
+        - phase(H_jomega): Phase response of H(jω).
+    """
+    # Find the transfer function H(s) of the system
+    H_s = find_H_s(A, Y, W, N, M, w_t, y_t)
     
+    # Replace s with jω to compute the frequency response H(jω)
+    H_jomega = H_s.replace(s, sp.I * omega)
+
+    return H_jomega, find_amplitude(H_jomega), find_phase(H_jomega)
     
+def find_amplitude(F_jw):
+    """
+    Computes the amplitude of a complex function F(jω).
+
+    Parameters:
+    F_jw (sympy expression): A complex function of ω.
+
+    Returns:
+    sympy expression: The amplitude of the function F(jω).
+    """
+    # Get the numerator and denominator of the function
+    numerator, denominator = sp.fraction(F_jw)
+    
+    # Compute the amplitude of the numerator and denominator
+    numerator_amplitude = sp.Abs(numerator)
+    denominator_amplitude = sp.Abs(denominator)
+    
+    # Return the amplitude response
+    return sp.expand(numerator_amplitude) / sp.expand(denominator_amplitude)
+
+def find_phase(F_jw):
+    """
+    Computes the phase of a complex function F(jω).
+
+    Parameters:
+    F_jw (sympy expression): A complex function of ω.
+
+    Returns:
+    sympy expression: The phase of the function F(jω).
+    """
+    # Get the numerator and denominator of the function
+    numerator, denominator = sp.fraction(F_jw)
+    
+    # Compute the phase of the numerator and denominator
+    numerator_phase = sp.arg(numerator)
+    denominator_phase = sp.arg(denominator)
+    
+    # Return the phase response
+    return sp.expand(numerator_phase) - sp.expand(denominator_phase)
 
     
 
@@ -357,6 +439,8 @@ def find_impulse_response(A, Y, W, N, M, w_t, y_t):
 t = sp.symbols('t')
 D = sp.symbols('D')
 s = sp.symbols('s')
+j = I
+omega = sp.symbols('\\omega') # For better looks replace with w
 h_t = sp.Function('h')(t)
 w_t = sp.Function('w')(t)
 x_t = sp.Function('x')(t)
@@ -365,24 +449,58 @@ z_t = sp.Function('z')(t)
 
 # Define the system matrices for the given problem
 A = [
-    [D**(-1) , D, 3],
-    [D , 2 *D, 3*D - 3],
-    [D**(-1) , D, 2*D - 3]
+    [D**(-1), D, 3],
+    [D, 2 * D, 3 * D - 3],
+    [D**(-1), D, 2 * D - 3]
 ]
 Y = [y_t, z_t]
 W = [0, w_t]
 M = 1
 N = 0
 
-
+# Analyze the system to get the differential equation
 diff_eq = analyzer(A, Y, W, N, M, W[M], Y[N])
+
+# Find the transfer function H(s)
 H_s = find_H_s(A, Y, W, N, M, W[M], Y[N])
+
+# Find the impulse response h(t)
 h_t = find_impulse_response(A, Y, W, N, M, W[M], Y[N])
 
+# Find the frequency response H(jω), its amplitude, and phase
+H_jomega, H_jomega_amplitude, H_jomega_phase = find_frequency_response(A, Y, W, N, M, W[M], Y[N])
+
+# Print the differential equation in LaTeX and pretty-print formats
+print("Differential equation is: (it is minimized)")
+print(sp.latex(diff_eq))
+print("or")
 sp.pprint(diff_eq)
-sp.pprint(H_s)
+print(" ")
+
+# Print the impulse response h(t) in LaTeX and pretty-print formats
+print("h(t) = ", end="")
+print(sp.latex(h_t))
+print("or")
 sp.pprint(h_t)
-# Calculate the minimal differential equation
-# minimal_diff_eq = minimal_differential_equation(A, Y, W, N, M, w_t)
-# print("Minimal Differential Equation:")
-# sp.pprint(minimal_diff_eq)
+print(" ")
+
+# Print the frequency response H(jω) in LaTeX and pretty-print formats
+print("H(j\\omega) = ", end="")
+print(sp.latex(H_jomega))
+print("or")
+sp.pprint(H_jomega)
+print(" ")
+
+# Print the amplitude of H(jω) in LaTeX and pretty-print formats
+print("amplitude(H(j\\omega)) = ", end="")
+print(sp.latex(H_jomega_amplitude))
+print("or")
+sp.pprint(H_jomega_amplitude)
+print(" ")
+
+# Print the phase of H(jω) in LaTeX and pretty-print formats
+print("phase(H(j\\omega)) = ", end="")
+print(sp.latex(H_jomega_phase))
+print("or")
+sp.pprint(H_jomega_phase)
+print(" ")
