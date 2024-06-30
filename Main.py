@@ -33,7 +33,7 @@ def is_D_in_denominator(expr):
     bool: True if D-operator is found in the denominator, False otherwise.
     """
     # Get the denominator of the left-hand side and right-hand side of the equation
-    _, denominator_lhs = sp.fraction(sp.simplify(sp.expand(expr.lhs)))
+    _ , denominator_lhs = sp.fraction(sp.simplify(sp.expand(expr.lhs)))
     #_, denominator_rhs = sp.fraction(sp.simplify(sp.expand(expr.rhs)))
 
     # Check if D-operator is in the denominator of either side
@@ -326,6 +326,7 @@ def find_impulse_response(A, Y, W, N, M, w_t, y_t):
     for i in range(len(constants)):
         delta_coeff = 0
         lhs_equation_expression = 0
+        derivative_count = 0
         
         # Determine the derivative count for the right-hand side terms
         try:
@@ -457,8 +458,8 @@ A = [
     [D**(-1), D, 2 * D - 3]
 ]
 Y = [y_t, z_t, x_t]
-W = [0, w_t, 0]
-M = 1
+W = [w_t, 0, 0]
+M = 0
 N = 0
 
 
@@ -482,35 +483,35 @@ H_jomega, H_jomega_amplitude, H_jomega_phase = find_frequency_response(A, Y, W, 
 
 # Print the differential equation in LaTeX and pretty-print formats
 print("Differential equation is: (it is minimized)")
-print(sp.latex(diff_eq))
-print("or")
+# print(sp.latex(diff_eq))
+# print("or")
 sp.pprint(diff_eq)
 print(" ")
 
 # Print the impulse response h(t) in LaTeX and pretty-print formats
-print("h(t) = ", end="")
-print(sp.latex(h_t))
-print("or")
+print("h(t) = ")
+# print(sp.latex(h_t))
+# print("or")
 sp.pprint(h_t)
 print(" ")
 
 # Print the frequency response H(jω) in LaTeX and pretty-print formats
-print("H(j\\omega) = ", end="")
-print(sp.latex(H_jomega))
-print("or")
+print("H(j\\omega) = ")
+# print(sp.latex(H_jomega))
+# print("or")
 sp.pprint(H_jomega)
 print(" ")
 
 # Print the amplitude of H(jω) in LaTeX and pretty-print formats
-print("amplitude(H(j\\omega)) = ", end="")
-print(sp.latex(H_jomega_amplitude))
-print("or")
+print("amplitude(H(j\\omega)) = ")
+# print(sp.latex(H_jomega_amplitude))
+# print("or")
 sp.pprint(H_jomega_amplitude)
 print(" ")
 
 # Print the phase of H(jω) in LaTeX and pretty-print formats
-print("phase(H(j\\omega)) = ", end="")
-print(sp.latex(H_jomega_phase))
-print("or")
+print("phase(H(j\\omega)) = ")
+# print(sp.latex(H_jomega_phase))
+# print("or")
 sp.pprint(H_jomega_phase)
 print(" ")
