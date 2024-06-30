@@ -125,7 +125,7 @@ def analyzer(A, Y, W, N, M, w_t, y_t, return_D_form_equation = False):
 
     # Calculating the required determinants
     det_A = A.det()
-    det_minor = minor_matrix.det()
+    det_minor = ((-1)**(N + M)) * minor_matrix.det()
 
     # Extract the equation and Turn it to sympy eq
     D_form_equation = simplify_D(sp.Eq(det_A * y_t, det_minor * w_t))
